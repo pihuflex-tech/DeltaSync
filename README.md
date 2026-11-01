@@ -244,3 +244,4 @@ usage: main.py [-h] [--futures-symbols FUTURES_SYMBOLS]
 ## License
 
 MIT License. Free for personal, commercial, and research use.
+

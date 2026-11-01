@@ -139,3 +139,4 @@ crontab -e
 # Add automated job (12:05 UTC = 17:35 IST)
 5 12 * * * cd /data/data/com.termux/files/home/DeltaSync && python main.py --quiet >> deltasync_cron.log 2>&1
 ```
+
