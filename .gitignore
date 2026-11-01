@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# SQLite databases and journal files
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Environment and secrets
+.env
+.env.*
+credentials.json
+secrets/
+
+# Log files and temporary artifacts
+*.log
+scratch/
+scratch_test.py
+verify_dbs.py
+*.tmp
+*.temp
+
+# Testing and coverage caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
