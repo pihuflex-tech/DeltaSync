@@ -22,7 +22,7 @@
   - If executed before 12:00 UTC: shifts window by -24 hours to target the latest finalized settlement.
 - **Complete Options Chain Discovery:** Automatically scans live & expired contracts via `GET /v2/products`, tracks 328+ contracts across 5 expiries (including today's settled session), and captures historical candles.
 - **Mathematical Integrity Auditor:** Verifies bar counts, monotonicity, and continuity, with an automated exponential backoff retry loop.
-- **CallMeBot WhatsApp Alerts:** Dispatches execution and integrity metrics to your phone upon completion.
+- **Telegram & WhatsApp Alerts:** Dispatches Markdown-formatted execution reports to Telegram Bot (`/sendMessage`) and/or CallMeBot WhatsApp upon completion.
 
 ---
 
@@ -132,9 +132,33 @@ crontab -e
 
 ---
 
-## WhatsApp Notification Configuration
+## Automated Alerting (Telegram & WhatsApp)
 
-DeltaSync integrates with [CallMeBot](https://www.callmebot.com/) for instant WhatsApp reports.
+### 1. Telegram Bot Notification (Recommended)
+DeltaSync can dispatch instant Markdown-formatted settlement summaries directly to your Telegram chat or channel using pure standard library `urllib.request`.
+
+#### Getting a Free Telegram Bot Token & Chat ID:
+1. Open Telegram and search for `@BotFather`.
+2. Send `/newbot` and follow instructions to get your **Bot Token** (e.g. `123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ`).
+3. Start a chat with your new bot, then search for `@userinfobot` or check `https://api.telegram.org/bot<TOKEN>/getUpdates` to get your numeric **Chat ID** (e.g. `987654321`).
+
+#### Supplying Telegram Credentials:
+**Method A: Environment Variables (Recommended for crontab/systemd)**
+```bash
+export TELEGRAM_BOT_TOKEN="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ"
+export TELEGRAM_CHAT_ID="987654321"
+python main.py
+```
+
+**Method B: Command-Line Flags**
+```bash
+python main.py --telegram-token "123456789:ABCdefGh..." --telegram-chat-id "987654321"
+```
+
+---
+
+### 2. WhatsApp Notification (CallMeBot)
+DeltaSync also integrates with [CallMeBot](https://www.callmebot.com/) for WhatsApp reports.
 
 ### Getting a Free CallMeBot API Key:
 1. Add the phone number `+34 644 59 13 89` (or the number listed on callmebot.com) to your WhatsApp contacts.
@@ -170,6 +194,8 @@ usage: main.py [-h] [--futures-symbols FUTURES_SYMBOLS]
                [--max-retries MAX_RETRIES]
                [--max-retry-rounds MAX_RETRY_ROUNDS]
                [--max-workers MAX_WORKERS] [--quiet]
+               [--telegram-token TELEGRAM_TOKEN]
+               [--telegram-chat-id TELEGRAM_CHAT_ID]
                [--whatsapp-phone WHATSAPP_PHONE] [--whatsapp-key WHATSAPP_KEY]
 ```
 

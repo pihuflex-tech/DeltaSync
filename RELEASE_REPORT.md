@@ -21,7 +21,7 @@ DeltaSync/
 ├── engine.py                    # Multithreaded ETL orchestrator for futures & options
 ├── main.py                      # Unified CLI entrypoint with JSON reporting
 ├── models.py                    # Memory-optimized dataclasses with __slots__
-├── notifier.py                  # CallMeBot WhatsApp dispatcher with graceful fallback
+├── notifier.py                  # Telegram Bot & CallMeBot WhatsApp dispatcher
 ├── settlement.py                # Dynamic 24-hour settlement window arithmetic
 ├── storage.py                   # Isolated SQLite storage engines (WAL mode)
 ├── task_plan.md                 # Project roadmap and architecture plan
@@ -29,7 +29,7 @@ DeltaSync/
 └── tests/
     ├── __init__.py              # Test suite package initializer
     ├── test_auditor.py          # Auditor gap and boundary detection unit tests
-    ├── test_notifier.py         # WhatsApp notification & formatting unit tests
+    ├── test_notifier.py         # Telegram and WhatsApp notification unit tests
     └── test_pipeline.py         # Storage, WAL pragmas, and settlement arithmetic tests
 ```
 
@@ -37,13 +37,13 @@ DeltaSync/
 
 ## 2. Test Suite & Sanity Verification
 
-All 16 unit tests execute using the pure Python standard library `unittest` runner:
+All 23 unit tests execute using the pure Python standard library `unittest` runner:
 
 ```bash
 $ python -m unittest discover -s tests
-................
+.......................
 ----------------------------------------------------------------------
-Ran 16 tests in 0.238s
+Ran 23 tests in 0.268s
 
 OK
 ```
@@ -61,6 +61,13 @@ OK
 - `test_auditor_detects_gap`: Confirms detection of missing intervals.
 - `test_auditor_detects_missing_bar`: Confirms incomplete series flagging.
 - `test_format_settlement_message`: Validates dynamic WhatsApp message template matching specifications.
+- `test_format_telegram_markdown_message`: Validates Markdown-styled Telegram notification template.
+- `test_telegram_skip_when_credentials_missing`: Confirms graceful skip when Telegram credentials are omitted.
+- `test_telegram_skip_when_token_only`: Confirms graceful skip when chat ID is missing.
+- `test_telegram_skip_when_message_empty`: Confirms empty message bypass.
+- `test_telegram_successful_dispatch`: Confirms Telegram Bot POST endpoint, JSON body, and Markdown mode.
+- `test_telegram_http_error_graceful_handling`: Confirms non-fatal handling of Telegram HTTP 400/401 errors.
+- `test_telegram_network_error_graceful_handling`: Confirms graceful recovery on network timeouts.
 - `test_skip_when_credentials_missing`: Confirms graceful skipping without raising exceptions.
 - `test_skip_when_message_empty`: Confirms empty message bypass.
 - `test_successful_dispatch`: Confirms CallMeBot URL formatting and HTTP 200 dispatch.

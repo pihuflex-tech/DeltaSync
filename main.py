@@ -28,7 +28,12 @@ from engine import (
     IngestionEngine,
 )
 from models import SettlementWindow
-from notifier import format_settlement_message, send_whatsapp_notification
+from notifier import (
+    format_settlement_message,
+    format_telegram_markdown_message,
+    send_telegram_notification,
+    send_whatsapp_notification,
+)
 from settlement import get_settlement_window
 from storage import FuturesStorage, OptionsStorage
 
@@ -190,14 +195,23 @@ def run_pipeline(args: argparse.Namespace) -> int:
         "network_telemetry": network_telemetry,
     }
 
+    # Dispatch Telegram notification if configured (or gracefully skip)
+    telegram_msg = format_telegram_markdown_message(verification_summary)
+    telegram_result = send_telegram_notification(
+        token=args.telegram_token,
+        chat_id=args.telegram_chat_id,
+        message=telegram_msg,
+    )
+    verification_summary["telegram_notification"] = telegram_result
+
     # Dispatch WhatsApp notification if configured (or gracefully skip)
     whatsapp_msg = format_settlement_message(verification_summary)
-    notif_result = send_whatsapp_notification(
+    whatsapp_result = send_whatsapp_notification(
         phone=args.whatsapp_phone,
         apikey=args.whatsapp_key,
         message=whatsapp_msg,
     )
-    verification_summary["whatsapp_notification"] = notif_result
+    verification_summary["whatsapp_notification"] = whatsapp_result
 
     print(json.dumps(verification_summary, indent=2))
     return 0 if futures_audit["overall_status"] == "PASSED" else 1
@@ -272,6 +286,16 @@ def main() -> None:
         "--quiet",
         action="store_true",
         help="Suppress stderr progress bar updates",
+    )
+    parser.add_argument(
+        "--telegram-token",
+        default=os.environ.get("TELEGRAM_BOT_TOKEN"),
+        help="Telegram Bot Token (e.g. 123456:ABC-DEF...). Defaults to TELEGRAM_BOT_TOKEN",
+    )
+    parser.add_argument(
+        "--telegram-chat-id",
+        default=os.environ.get("TELEGRAM_CHAT_ID"),
+        help="Telegram Chat ID (e.g. 123456789 or @channel). Defaults to TELEGRAM_CHAT_ID",
     )
     parser.add_argument(
         "--whatsapp-phone",
