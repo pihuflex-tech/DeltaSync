@@ -30,9 +30,7 @@ from engine import (
 from models import SettlementWindow
 from notifier import (
     format_settlement_message,
-    format_telegram_markdown_message,
     send_telegram_notification,
-    send_whatsapp_notification,
 )
 from settlement import get_settlement_window
 from storage import FuturesStorage, OptionsStorage
@@ -196,22 +194,13 @@ def run_pipeline(args: argparse.Namespace) -> int:
     }
 
     # Dispatch Telegram notification if configured (or gracefully skip)
-    telegram_msg = format_telegram_markdown_message(verification_summary)
+    telegram_msg = format_settlement_message(verification_summary)
     telegram_result = send_telegram_notification(
         token=args.telegram_token,
         chat_id=args.telegram_chat_id,
         message=telegram_msg,
     )
     verification_summary["telegram_notification"] = telegram_result
-
-    # Dispatch WhatsApp notification if configured (or gracefully skip)
-    whatsapp_msg = format_settlement_message(verification_summary)
-    whatsapp_result = send_whatsapp_notification(
-        phone=args.whatsapp_phone,
-        apikey=args.whatsapp_key,
-        message=whatsapp_msg,
-    )
-    verification_summary["whatsapp_notification"] = whatsapp_result
 
     print(json.dumps(verification_summary, indent=2))
     return 0 if futures_audit["overall_status"] == "PASSED" else 1
@@ -296,16 +285,6 @@ def main() -> None:
         "--telegram-chat-id",
         default=os.environ.get("TELEGRAM_CHAT_ID"),
         help="Telegram Chat ID (e.g. 123456789 or @channel). Defaults to TELEGRAM_CHAT_ID",
-    )
-    parser.add_argument(
-        "--whatsapp-phone",
-        default=os.environ.get("WHATSAPP_PHONE"),
-        help="Destination WhatsApp phone number with country code (e.g. +919876543210)",
-    )
-    parser.add_argument(
-        "--whatsapp-key",
-        default=os.environ.get("WHATSAPP_APIKEY"),
-        help="CallMeBot WhatsApp API key",
     )
 
     args = parser.parse_args()

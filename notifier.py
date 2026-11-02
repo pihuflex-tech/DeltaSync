@@ -1,6 +1,6 @@
-"""Notification module for DeltaSync pipeline supporting Telegram Bot and CallMeBot WhatsApp.
+"""Notification module for DeltaSync pipeline supporting Telegram Bot API.
 
-Uses pure Python standard library (urllib.request, urllib.parse, and json).
+Uses pure Python standard library (urllib.request, json, os, logging).
 Gracefully skips when credentials are not configured or on network failures.
 """
 from __future__ import annotations
@@ -10,92 +10,88 @@ import logging
 import os
 from typing import Any, Mapping, Optional
 import urllib.error
-import urllib.parse
 import urllib.request
 
 logger = logging.getLogger("DeltaSync.Notifier")
 
-CALLMEBOT_URL = "https://api.callmebot.com/whatsapp.php"
 DEFAULT_TIMEOUT = 10.0
 
 
 def format_settlement_message(summary: Mapping[str, Any]) -> str:
-    """Format concise plaintext settlement message template from verification summary."""
-    window = summary.get("settlement_window", {})
-    start_ist = window.get("start_ist", "").replace(" IST", "")
-    end_ist = window.get("end_ist", "").replace(" IST", "")
-    elapsed = summary.get("elapsed_seconds", 0.0)
+    """Format settlement summary into clean Telegram Markdown.
 
-    f_db = summary.get("databases", {}).get("futures_db", {})
-    o_db = summary.get("databases", {}).get("options_db", {})
-
-    passed_series = f_db.get("series_passed", 0)
-    total_series = f_db.get("series_total", 0)
-    futures_bars = f"{f_db.get('total_candles', 0):,}"
-
-    # Sum total gaps across series details
-    series_details = summary.get("futures_integrity", {}).get("series_details", [])
-    total_gaps = sum(s.get("gaps_count", 0) for s in series_details)
-
-    contracts_scanned = o_db.get("total_contracts_scanned", 0)
-    active_contracts = o_db.get("contracts_with_activity", 0)
-    options_bars = f"{o_db.get('total_candles', 0):,}"
-
-    status_line = "All DB checks passed." if summary.get("status") == "SUCCESS" else "Warnings during verification."
-
-    lines = [
-        "DeltaSync Settlement Report (Success)" if summary.get("status") == "SUCCESS" else "DeltaSync Settlement Report (Partial)",
-        f"Window: {start_ist} to {end_ist} IST",
-        f"Elapsed: {elapsed:.1f}s",
-        f"Futures: {passed_series}/{total_series} series ({futures_bars} bars, {total_gaps} gaps)",
-        f"Options: {contracts_scanned} contracts scanned ({options_bars} bars across {active_contracts} active)",
-        f"Status: {status_line}",
-    ]
-    return "\n".join(lines)
-
-
-def format_telegram_markdown_message(summary: Mapping[str, Any]) -> str:
-    """Format Markdown-styled settlement message for Telegram Bot.
-
-    Expected template:
-    *DeltaSync Settlement Report (Success)*
-    *Window:* `2026-10-31 17:30 to 2026-11-01 17:30 IST`
-    *Elapsed:* `43.7s`
-    *Futures:* 18/18 series (5,724 bars, 0 gaps)
-    *Options:* 328 contracts scanned (19,417 bars across 185 active)
-    *Status:* All DB checks passed.
+    Template format:
+    *✅/❌ DeltaSync Settlement Report ({status})*
+    *Settlement Window:* {start_ist} to {end_ist}
+    *Elapsed:* {elapsed:.1f}s
+    *Futures:* {passed}/{total} series ({candles:,} bars)
+    *Options:* {scanned} scanned ({candles:,} bars across {active} active)
+    *Status:* All DB checks passed. (or integrity issues if any)
     """
+    raw_status = summary.get("status", "SUCCESS")
+    status = raw_status if raw_status else "SUCCESS"
+    is_success = str(status).upper() in ("SUCCESS", "PASSED")
+    icon = "✅" if is_success else "❌"
+    header = f"*{icon} DeltaSync Settlement Report ({status})*"
+
     window = summary.get("settlement_window", {})
-    start_ist = window.get("start_ist", "").replace(" IST", "")
-    end_ist = window.get("end_ist", "").replace(" IST", "")
+    start_ist = str(window.get("start_ist", "")).strip()
+    end_ist = str(window.get("end_ist", "")).strip()
+
+    if start_ist.endswith(" IST") and end_ist.endswith(" IST"):
+        window_str = f"{start_ist[:-4]} to {end_ist}"
+    elif start_ist and end_ist:
+        window_str = f"{start_ist} to {end_ist}"
+    else:
+        window_str = f"{start_ist or end_ist or 'N/A'}"
+
     elapsed = summary.get("elapsed_seconds", 0.0)
 
     f_db = summary.get("databases", {}).get("futures_db", {})
     o_db = summary.get("databases", {}).get("options_db", {})
 
-    passed_series = f_db.get("series_passed", 0)
-    total_series = f_db.get("series_total", 0)
-    futures_bars = f"{f_db.get('total_candles', 0):,}"
+    passed = f_db.get("series_passed", 0)
+    total = f_db.get("series_total", 0)
+    candles = f_db.get("total_candles", 0)
 
-    series_details = summary.get("futures_integrity", {}).get("series_details", [])
-    total_gaps = sum(s.get("gaps_count", 0) for s in series_details)
+    scanned = o_db.get("total_contracts_scanned", 0)
+    active = o_db.get("contracts_with_activity", 0)
+    opt_candles = o_db.get("total_candles", 0)
 
-    contracts_scanned = o_db.get("total_contracts_scanned", 0)
-    active_contracts = o_db.get("contracts_with_activity", 0)
-    options_bars = f"{o_db.get('total_candles', 0):,}"
+    # Detect integrity issues
+    issues: list[str] = []
+    futures_integrity = summary.get("futures_integrity", {})
+    if isinstance(futures_integrity, dict):
+        for s in futures_integrity.get("series_details", []):
+            sym = s.get("symbol", "")
+            s_issues = s.get("issues", [])
+            for iss in s_issues:
+                issues.append(f"{sym}: {iss}" if sym else str(iss))
+            if not s_issues and s.get("gaps_count", 0) > 0:
+                issues.append(f"{sym}: {s.get('gaps_count')} gaps" if sym else f"{s.get('gaps_count')} gaps")
+            elif not s_issues and s.get("status") not in (None, "PASSED"):
+                issues.append(f"{sym}: {s.get('status')}" if sym else str(s.get("status")))
 
-    status_line = "All DB checks passed." if summary.get("status") == "SUCCESS" else "Warnings during verification."
-    title = "*DeltaSync Settlement Report (Success)*" if summary.get("status") == "SUCCESS" else "*DeltaSync Settlement Report (Partial)*"
+    if issues:
+        status_line = f"*Integrity Issues:* {'; '.join(issues)}"
+    elif not is_success:
+        status_line = f"*Status:* Warnings during verification ({status})."
+    else:
+        status_line = "*Status:* All DB checks passed."
 
     lines = [
-        title,
-        f"*Window:* `{start_ist} to {end_ist} IST`",
-        f"*Elapsed:* `{elapsed:.1f}s`",
-        f"*Futures:* {passed_series}/{total_series} series ({futures_bars} bars, {total_gaps} gaps)",
-        f"*Options:* {contracts_scanned} contracts scanned ({options_bars} bars across {active_contracts} active)",
-        f"*Status:* {status_line}",
+        header,
+        f"*Settlement Window:* {window_str}",
+        f"*Elapsed:* {elapsed:.1f}s",
+        f"*Futures:* {passed}/{total} series ({candles:,} bars)",
+        f"*Options:* {scanned} scanned ({opt_candles:,} bars across {active} active)",
+        status_line,
     ]
     return "\n".join(lines)
+
+
+# Backward compatibility alias
+format_telegram_markdown_message = format_settlement_message
 
 
 def send_telegram_notification(
@@ -113,7 +109,7 @@ def send_telegram_notification(
         timeout: HTTP request timeout in seconds.
 
     Returns:
-        Dictionary with status, sent boolean, and reason/error description.
+        Structured status dict {"sent": bool, "skipped": bool, "status_code": int, ...}.
     """
     resolved_token = token or os.environ.get("TELEGRAM_BOT_TOKEN")
     resolved_chat_id = chat_id or os.environ.get("TELEGRAM_CHAT_ID")
@@ -123,6 +119,7 @@ def send_telegram_notification(
         return {
             "sent": False,
             "skipped": True,
+            "status_code": 0,
             "reason": "Missing Telegram bot token or chat ID",
         }
 
@@ -131,12 +128,13 @@ def send_telegram_notification(
         return {
             "sent": False,
             "skipped": True,
+            "status_code": 0,
             "reason": "Empty message body",
         }
 
     url = f"https://api.telegram.org/bot{resolved_token.strip()}/sendMessage"
     payload = {
-        "chat_id": resolved_chat_id.strip(),
+        "chat_id": str(resolved_chat_id).strip(),
         "text": message.strip(),
         "parse_mode": "Markdown",
     }
@@ -160,15 +158,19 @@ def send_telegram_notification(
             return {
                 "sent": True,
                 "skipped": False,
-                "status_code": resp.status,
+                "status_code": getattr(resp, "status", 200),
                 "response": resp_body.strip(),
             }
     except urllib.error.HTTPError as http_err:
-        err_msg = http_err.read().decode("utf-8", errors="replace")
+        try:
+            err_msg = http_err.read().decode("utf-8", errors="replace")
+        finally:
+            http_err.close()
         logger.warning("Telegram HTTP %d error: %s", http_err.code, err_msg)
         return {
             "sent": False,
             "skipped": False,
+            "status_code": http_err.code,
             "error": f"HTTP {http_err.code}: {err_msg}",
         }
     except Exception as exc:
@@ -176,83 +178,6 @@ def send_telegram_notification(
         return {
             "sent": False,
             "skipped": False,
-            "error": str(exc),
-        }
-
-
-def send_whatsapp_notification(
-    phone: Optional[str] = None,
-    apikey: Optional[str] = None,
-    message: str = "",
-    timeout: float = DEFAULT_TIMEOUT,
-) -> dict[str, Any]:
-    """Send WhatsApp message via CallMeBot API.
-
-    Args:
-        phone: Destination phone number (e.g. +919876543210). Defaults to WHATSAPP_PHONE env var.
-        apikey: CallMeBot API key. Defaults to WHATSAPP_APIKEY env var.
-        message: Plaintext message string to send.
-        timeout: HTTP request timeout in seconds.
-
-    Returns:
-        Dictionary with status, sent boolean, and reason/error description.
-    """
-    resolved_phone = phone or os.environ.get("WHATSAPP_PHONE")
-    resolved_apikey = apikey or os.environ.get("WHATSAPP_APIKEY")
-
-    if not resolved_phone or not resolved_apikey:
-        logger.info("WhatsApp credentials not provided (WHATSAPP_PHONE / WHATSAPP_APIKEY). Skipping notification.")
-        return {
-            "sent": False,
-            "skipped": True,
-            "reason": "Missing phone number or API key",
-        }
-
-    if not message.strip():
-        logger.warning("WhatsApp notification message is empty. Skipping.")
-        return {
-            "sent": False,
-            "skipped": True,
-            "reason": "Empty message body",
-        }
-
-    params = {
-        "phone": resolved_phone.strip(),
-        "text": message.strip(),
-        "apikey": resolved_apikey.strip(),
-    }
-    encoded_query = urllib.parse.urlencode(params)
-    url = f"{CALLMEBOT_URL}?{encoded_query}"
-
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "DeltaSync/1.0 (CallMeBot WhatsApp Notifier)"},
-        method="GET",
-    )
-
-    try:
-        logger.info("Dispatching WhatsApp notification via CallMeBot to %s...", resolved_phone)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            resp_body = resp.read().decode("utf-8", errors="replace")
-            logger.info("WhatsApp notification sent successfully. Response: %s", resp_body.strip())
-            return {
-                "sent": True,
-                "skipped": False,
-                "status_code": resp.status,
-                "response": resp_body.strip(),
-            }
-    except urllib.error.HTTPError as http_err:
-        err_msg = http_err.read().decode("utf-8", errors="replace")
-        logger.warning("CallMeBot HTTP %d error: %s", http_err.code, err_msg)
-        return {
-            "sent": False,
-            "skipped": False,
-            "error": f"HTTP {http_err.code}: {err_msg}",
-        }
-    except Exception as exc:
-        logger.warning("Failed to send WhatsApp notification via CallMeBot: %s", exc)
-        return {
-            "sent": False,
-            "skipped": False,
+            "status_code": 0,
             "error": str(exc),
         }
